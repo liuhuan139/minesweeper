@@ -34,6 +34,10 @@ private:
     int flags_left_ = 40;
 
     Gtk::VBox vbox_;
+    Gtk::Overlay overlay_;
+    Gtk::Revealer toast_revealer_;
+    Gtk::HBox toast_shell_;
+    Gtk::Label toast_label_;
     Gtk::HBox top_bar_;
     Gtk::HBox diff_bar_;
     Gtk::Label status_;
@@ -41,6 +45,7 @@ private:
     Gtk::Grid field_;
     Gtk::RadioButton rb_easy_, rb_medium_, rb_hard_;
     Glib::RefPtr<Gtk::CssProvider> css_;
+    sigc::connection toast_hide_conn_;
 
     void load_difficulty(Difficulty d);
     int cell_px() const;
@@ -62,8 +67,8 @@ private:
     void on_new_game();
     void on_difficulty();
 
-    static void show_info(Gtk::Window& parent, const Glib::ustring& title,
-                          const Glib::ustring& msg, Gtk::MessageType type);
+    void show_toast(const Glib::ustring& msg, Gtk::MessageType type);
+    bool on_toast_hide_timeout();
 };
 
 #endif

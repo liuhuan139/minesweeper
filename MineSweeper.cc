@@ -1,5 +1,5 @@
 #include "MineSweeper.h"
-#include <gtkmm/messagedialog.h>
+#include <gtkmm/overlay.h>
 #include <algorithm>
 #include <iostream>
 
@@ -28,37 +28,53 @@ const char* const kCss = R"(
 #ms-root button.cell.mine-hit {
   background-color: #ffb3b3;
 }
-#ms-root button.primary {
+#ms-root button.suggested-action {
   padding: 6px 14px;
   font-weight: 600;
   border-radius: 6px;
-  background-color: #3a6ee8;
-  color: #ffffff;
-  border-width: 1px;
-  border-style: solid;
-  border-top-color: #6b9fff;
-  border-left-color: #6b9fff;
-  border-right-color: #1f4bb8;
-  border-bottom-color: #1f4bb8;
 }
-#ms-root button.primary label { color: #ffffff; }
 #ms-root radiobutton { font-size: 12px; color: #223355; }
+#ms-root .ms-toast {
+  background-color: rgba(32, 44, 62, 0.94);
+  color: #f0f4fc;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 13px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+#ms-root .ms-toast.warning {
+  background-color: rgba(92, 36, 36, 0.94);
+  color: #fff5f0;
+  border-color: rgba(255, 200, 180, 0.2);
+}
+#ms-root .ms-toast label { color: inherit; }
 )";
 
 } // namespace
 
-void MineSweeper::show_info(Gtk::Window& parent, const Glib::ustring& title,
-                            const Glib::ustring& msg, Gtk::MessageType type) {
-    Gtk::MessageDialog dlg(parent, msg, false, type, Gtk::BUTTONS_OK);
-    dlg.set_title(title);
-    dlg.run();
+void MineSweeper::show_toast(const Glib::ustring& msg, Gtk::MessageType type) {
+    toast_hide_conn_.disconnect();
+    toast_label_.set_text(msg);
+    auto sc = toast_shell_.get_style_context();
+    sc->remove_class("warning");
+    if (type == Gtk::MESSAGE_WARNING)
+        sc->add_class("warning");
+    toast_revealer_.set_reveal_child(true);
+    toast_hide_conn_ =
+        Glib::signal_timeout().connect(sigc::mem_fun(*this, &MineSweeper::on_toast_hide_timeout),
+                                       3200);
+}
+
+bool MineSweeper::on_toast_hide_timeout() {
+    toast_revealer_.set_reveal_child(false);
+    return false;
 }
 
 MineSweeper::MineSweeper() {
     set_title("扫雷");
     set_border_width(12);
     set_resizable(false);
-    vbox_.set_name("ms-root");
+    overlay_.set_name("ms-root");
     vbox_.set_spacing(10);
 
     css_ = Gtk::CssProvider::create();
@@ -89,7 +105,7 @@ MineSweeper::MineSweeper() {
     top_bar_.pack_start(mines_label_, Gtk::PACK_SHRINK);
 
     auto* btn_new = Gtk::manage(new Gtk::Button("新游戏"));
-    btn_new->get_style_context()->add_class("primary");
+    btn_new->get_style_context()->add_class("suggested-action");
     btn_new->signal_clicked().connect(sigc::mem_fun(*this, &MineSweeper::on_new_game));
     top_bar_.pack_start(*btn_new, Gtk::PACK_SHRINK);
 
@@ -115,7 +131,26 @@ MineSweeper::MineSweeper() {
     field_.set_row_spacing(2);
     field_.set_column_spacing(2);
 
-    add(vbox_);
+    toast_label_.set_line_wrap(true);
+    toast_label_.set_max_width_chars(36);
+    toast_label_.set_justify(Gtk::JUSTIFY_CENTER);
+    toast_label_.set_xalign(0.5f);
+    toast_shell_.pack_start(toast_label_, Gtk::PACK_SHRINK);
+    toast_shell_.get_style_context()->add_class("ms-toast");
+    toast_revealer_.add(toast_shell_);
+    toast_revealer_.set_transition_type(Gtk::REVEALER_TRANSITION_TYPE_SLIDE_UP);
+    toast_revealer_.set_transition_duration(220);
+    toast_revealer_.set_reveal_child(false);
+    toast_revealer_.set_halign(Gtk::ALIGN_CENTER);
+    toast_revealer_.set_valign(Gtk::ALIGN_END);
+    toast_revealer_.set_margin_bottom(14);
+    toast_revealer_.set_margin_start(12);
+    toast_revealer_.set_margin_end(12);
+
+    overlay_.add(vbox_);
+    overlay_.add_overlay(toast_revealer_);
+    overlay_.set_overlay_pass_through(toast_revealer_, true);
+    add(overlay_);
     load_difficulty(Difficulty::Medium);
     rebuild_field();
     new_round_state();
@@ -125,7 +160,9 @@ MineSweeper::MineSweeper() {
     status_.set_text("准备开始：点击「新游戏」开局，或切换难度后自动重置。");
 }
 
-MineSweeper::~MineSweeper() = default;
+MineSweeper::~MineSweeper() {
+    toast_hide_conn_.disconnect();
+}
 
 void MineSweeper::load_difficulty(Difficulty d) {
     difficulty_ = d;
@@ -158,7 +195,7 @@ int MineSweeper::cell_px() const {
 void MineSweeper::sync_window_size() {
     show_all_children();
     Gtk::Requisition mn, nt;
-    vbox_.get_preferred_size(mn, nt);
+    overlay_.get_preferred_size(mn, nt);
     const int b = get_border_width();
     resize(nt.width + 2 * b, nt.height + 2 * b);
 }
@@ -369,9 +406,9 @@ void MineSweeper::end_game(bool won) {
     }
     refresh_cells();
     if (won)
-        show_info(*this, "扫雷", "恭喜通关！", Gtk::MESSAGE_INFO);
+        show_toast("恭喜通关！", Gtk::MESSAGE_INFO);
     else
-        show_info(*this, "扫雷", "游戏失败，再接再厉。", Gtk::MESSAGE_WARNING);
+        show_toast("游戏失败，再接再厉。", Gtk::MESSAGE_WARNING);
 }
 
 void MineSweeper::refresh_cells() {
@@ -436,7 +473,7 @@ void MineSweeper::refresh_cells() {
 void MineSweeper::on_new_game() {
     new_round_state();
     status_.set_text("游戏已开始：左键翻开，右键插/拔旗标。");
-    show_info(*this, "扫雷", "游戏已开始！\n左键翻开格子，右键标记或取消地雷。", Gtk::MESSAGE_INFO);
+    show_toast("游戏已开始！左键翻开格子，右键标记或取消地雷。", Gtk::MESSAGE_INFO);
 }
 
 void MineSweeper::on_difficulty() {
