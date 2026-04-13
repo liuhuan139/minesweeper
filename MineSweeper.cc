@@ -5,6 +5,10 @@
 
 namespace {
 
+inline Gdk::RGBA pick_fg(bool dark, const char* light_hex, const char* dark_hex) {
+    return Gdk::RGBA(dark ? dark_hex : light_hex);
+}
+
 const char* const kCss = R"(
 #ms-root { background-color: #e8ecf2; }
 #ms-root .ms-title { font-weight: 800; font-size: 15px; color: #1a2b4a; }
@@ -48,9 +52,63 @@ const char* const kCss = R"(
   border-color: rgba(255, 200, 180, 0.2);
 }
 #ms-root .ms-toast label { color: inherit; }
+#ms-root.dark { background-color: #242830; }
+#ms-root.dark .ms-title { color: #eef3ff; }
+#ms-root.dark .ms-muted { color: #c8d6ef; }
+#ms-root.dark button.cell {
+  border-top-color: #5c6575;
+  border-left-color: #5c6575;
+  border-right-color: #1e2229;
+  border-bottom-color: #1e2229;
+  background-color: #3a4250;
+  color: #eceff4;
+}
+#ms-root.dark button.cell.flat {
+  border-top-color: #4d5668;
+  border-left-color: #4d5668;
+  border-right-color: #2a303a;
+  border-bottom-color: #2a303a;
+  background-color: #323844;
+}
+#ms-root.dark button.cell.mine-hit {
+  background-color: #d98a8a;
+}
+#ms-root.dark radiobutton,
+#ms-root.dark radiobutton label { color: #dbe6fb; }
+#ms-root.dark .ms-toast {
+  background-color: rgba(48, 56, 72, 0.96);
+  color: #f6f8ff;
+  border-color: rgba(255, 255, 255, 0.18);
+}
+#ms-root.dark .ms-toast.warning {
+  background-color: rgba(120, 48, 48, 0.96);
+  color: #fff8f4;
+  border-color: rgba(255, 210, 190, 0.28);
+}
 )";
 
 } // namespace
+
+bool MineSweeper::infer_dark_ui_from_settings() const {
+    auto s = Gtk::Settings::get_default();
+    if (!s)
+        return false;
+    if (s->property_gtk_application_prefer_dark_theme().get_value())
+        return true;
+    const Glib::ustring name = s->property_gtk_theme_name().get_value();
+    const Glib::ustring low = name.lowercase();
+    return low.find("dark") != Glib::ustring::npos;
+}
+
+void MineSweeper::sync_dark_class_from_settings() {
+    dark_ui_ = infer_dark_ui_from_settings();
+    auto sc = overlay_.get_style_context();
+    if (dark_ui_)
+        sc->add_class("dark");
+    else
+        sc->remove_class("dark");
+    refresh_cells();
+}
 
 void MineSweeper::show_toast(const Glib::ustring& msg, Gtk::MessageType type) {
     toast_hide_conn_.disconnect();
@@ -158,6 +216,14 @@ MineSweeper::MineSweeper() {
     sync_window_size();
 
     status_.set_text("准备开始：点击「新游戏」开局，或切换难度后自动重置。");
+
+    if (auto settings = Gtk::Settings::get_default()) {
+        settings->property_gtk_application_prefer_dark_theme().signal_changed().connect(
+            sigc::mem_fun(*this, &MineSweeper::sync_dark_class_from_settings));
+        settings->property_gtk_theme_name().signal_changed().connect(
+            sigc::mem_fun(*this, &MineSweeper::sync_dark_class_from_settings));
+    }
+    sync_dark_class_from_settings();
 }
 
 MineSweeper::~MineSweeper() {
@@ -238,7 +304,7 @@ void MineSweeper::new_round_state() {
                 continue;
             buttons_[r][c]->set_sensitive(true);
             buttons_[r][c]->set_label("");
-            buttons_[r][c]->override_color(Gdk::RGBA("#111111"));
+            buttons_[r][c]->override_color(pick_fg(dark_ui_, "#111111", "#eceff4"));
             auto ctx = buttons_[r][c]->get_style_context();
             ctx->remove_class("flat");
             ctx->remove_class("mine-hit");
@@ -425,7 +491,7 @@ void MineSweeper::refresh_cells() {
                 ctx->add_class("flat");
                 ctx->add_class("mine-hit");
                 b->set_label("*");
-                b->override_color(Gdk::RGBA("#220000"));
+                b->override_color(pick_fg(dark_ui_, "#220000", "#3a0a0a"));
                 continue;
             }
 
@@ -435,35 +501,51 @@ void MineSweeper::refresh_cells() {
                 ctx->remove_class("mine-hit");
                 if (cell.mine) {
                     b->set_label("*");
-                    b->override_color(Gdk::RGBA("#880000"));
+                    b->override_color(pick_fg(dark_ui_, "#880000", "#ff9a9a"));
                 } else if (cell.adjacent > 0) {
                     b->set_label(std::to_string(cell.adjacent));
                     switch (cell.adjacent) {
-                        case 1: b->override_color(Gdk::RGBA("#0000ff")); break;
-                        case 2: b->override_color(Gdk::RGBA("#00aa00")); break;
-                        case 3: b->override_color(Gdk::RGBA("#ff0000")); break;
-                        case 4: b->override_color(Gdk::RGBA("#000084")); break;
-                        case 5: b->override_color(Gdk::RGBA("#840000")); break;
-                        case 6: b->override_color(Gdk::RGBA("#008284")); break;
-                        case 7: b->override_color(Gdk::RGBA("#000000")); break;
-                        default: b->override_color(Gdk::RGBA("#666666")); break;
+                        case 1:
+                            b->override_color(pick_fg(dark_ui_, "#0000ff", "#8ec5ff"));
+                            break;
+                        case 2:
+                            b->override_color(pick_fg(dark_ui_, "#00aa00", "#7ae8a8"));
+                            break;
+                        case 3:
+                            b->override_color(pick_fg(dark_ui_, "#ff0000", "#ff8a8a"));
+                            break;
+                        case 4:
+                            b->override_color(pick_fg(dark_ui_, "#000084", "#b8c7ff"));
+                            break;
+                        case 5:
+                            b->override_color(pick_fg(dark_ui_, "#840000", "#ff9d9d"));
+                            break;
+                        case 6:
+                            b->override_color(pick_fg(dark_ui_, "#008284", "#7ee8e8"));
+                            break;
+                        case 7:
+                            b->override_color(pick_fg(dark_ui_, "#000000", "#f2f4f8"));
+                            break;
+                        default:
+                            b->override_color(pick_fg(dark_ui_, "#666666", "#cfd6df"));
+                            break;
                     }
                 } else {
                     b->set_label("");
-                    b->override_color(Gdk::RGBA("#333333"));
+                    b->override_color(pick_fg(dark_ui_, "#333333", "#9aa7b8"));
                 }
             } else if (cell.flagged) {
                 b->set_sensitive(true);
                 ctx->remove_class("flat");
                 ctx->remove_class("mine-hit");
                 b->set_label("!");
-                b->override_color(Gdk::RGBA("#cc0000"));
+                b->override_color(pick_fg(dark_ui_, "#cc0000", "#ff7a7a"));
             } else {
                 b->set_sensitive(true);
                 ctx->remove_class("flat");
                 ctx->remove_class("mine-hit");
                 b->set_label("");
-                b->override_color(Gdk::RGBA("#111111"));
+                b->override_color(pick_fg(dark_ui_, "#111111", "#eceff4"));
             }
         }
     }

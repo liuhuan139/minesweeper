@@ -47,6 +47,10 @@ private:
     Glib::RefPtr<Gtk::CssProvider> css_;
     sigc::connection toast_hide_conn_;
 
+    bool dark_ui_ = false;
+    bool infer_dark_ui_from_settings() const;
+    void sync_dark_class_from_settings();
+
     void load_difficulty(Difficulty d);
     int cell_px() const;
     void sync_window_size();
